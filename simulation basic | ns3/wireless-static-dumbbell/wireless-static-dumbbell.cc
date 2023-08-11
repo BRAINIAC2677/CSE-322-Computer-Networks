@@ -25,21 +25,55 @@
 
 using namespace ns3;
 
+uint64_t totalTxPackets = 0;
+uint64_t totalRxPackets = 0;
+
+void
+TxTracedCallback(Ptr<const Packet> _packet)
+{
+    totalTxPackets++;
+}
+
+void
+RxTracedCallback(Ptr<const Packet> _packet, const Address& _address)
+{
+    totalRxPackets++;
+}
+
+double
+CalculateThroughput(uint64_t _totalRxPackets, uint64_t _packetSize, double _simulationTime)
+{
+    // Mbit/s
+    return (_totalRxPackets * _packetSize * 8) / (_simulationTime * 1000000.0);
+}
+
+double
+PacketDeliveryRatio(uint64_t _totalTxPackets, uint64_t _totalRxPackets)
+{
+    if (_totalTxPackets == 0)
+    {
+        return 0;
+    }
+    return (double)_totalRxPackets / (double)_totalTxPackets;
+}
+
 int
 main(int argc, char* argv[])
 {
+    bool Verbose = true;
     uint64_t NumberOfNodes = 10;
     uint64_t NumberOfFlows = 10;
     uint64_t PacketSize = 1024;
     uint64_t NumberOfPacketsPerSecond = 100;
     uint64_t SpeedOfNodes = 5;
     double CoverageArea = 1;
-    bool Verbose = true;
+    double SimulationTime = 1.09;
+    std::string MetricOutputFile = "simulation_metric.csv";
 
-    double simulationTime = 1.09;
     double txRange = 5;
 
     CommandLine cmd(__FILE__);
+    cmd.AddValue("Verbose", "Verbose", Verbose);
     cmd.AddValue("NumberOfNodes", "Number of nodes", NumberOfNodes);
     cmd.AddValue("NumberOfFlows", "Number of flows", NumberOfFlows);
     cmd.AddValue("PacketSize", "Packet size", PacketSize);
@@ -48,18 +82,24 @@ main(int argc, char* argv[])
                  NumberOfPacketsPerSecond);
     cmd.AddValue("SpeedOfNodes", "Speed of nodes", SpeedOfNodes);
     cmd.AddValue("CoverageArea", "Coverage area", CoverageArea);
-    cmd.AddValue("Verbose", "Verbose", Verbose);
+    cmd.AddValue("SimulationTime", "Simulation time", SimulationTime);
+    cmd.AddValue("MetricOutputFile", "Metric output file", MetricOutputFile);
     cmd.Parse(argc, argv);
+
+    if (Verbose)
+    {
+        LogComponentEnable("OnOffApplication", LOG_LEVEL_DEBUG);
+        LogComponentEnable("PacketSink", LOG_LEVEL_DEBUG);
+        // LogComponentEnable("YansWifiPhy", LOG_LEVEL_DEBUG);
+    }
 
     CoverageArea *= txRange;
     uint64_t calcDataRate = PacketSize * NumberOfPacketsPerSecond * 8;
     std::string dataRate = std::to_string(calcDataRate) + "bps";
 
-    if (Verbose)
-    {
-        LogComponentEnable("OnOffApplication", LOG_LEVEL_INFO);
-        LogComponentEnable("PacketSink", LOG_LEVEL_INFO);
-    }
+    std::ofstream metricOutputFileStream(MetricOutputFile, std::ios::app);
+
+    Config::SetDefault("ns3::TcpSocket::SegmentSize", UintegerValue(PacketSize));
 
     NodeContainer bottleneckNodes;
     bottleneckNodes.Create(2);
@@ -121,9 +161,9 @@ main(int argc, char* argv[])
                                         "MinY",
                                         DoubleValue(0.0),
                                         "DeltaX",
-                                        DoubleValue(0),
+                                        DoubleValue(0.1),
                                         "DeltaY",
-                                        DoubleValue(0),
+                                        DoubleValue(0.1),
                                         "GridWidth",
                                         UintegerValue(1),
                                         "LayoutType",
@@ -185,6 +225,16 @@ main(int argc, char* argv[])
             senderApps.Add(onOffHelper.Install(senderStaNodes.Get(i)).Get(0));
             receiverApps.Add(packetSinkHelper.Install(receiverStaNodes.Get(i)).Get(0));
 
+            std::ostringstream ossr;
+            ossr << "/NodeList/" << receiverStaNodes.Get(i)->GetId() << "/ApplicationList/"
+                 << receiverStaNodes.Get(i)->GetNApplications() - 1 << "/$ns3::PacketSink/Rx";
+            Config::ConnectWithoutContext(ossr.str(), MakeCallback(&RxTracedCallback));
+
+            std::ostringstream osss;
+            osss << "/NodeList/" << senderStaNodes.Get(i)->GetId() << "/ApplicationList/"
+                 << senderStaNodes.Get(i)->GetNApplications() - 1 << "/$ns3::OnOffApplication/Tx";
+            Config::ConnectWithoutContext(osss.str(), MakeCallback(&TxTracedCallback));
+
             numberOfCreatedFlows++;
             if (numberOfCreatedFlows == NumberOfFlows)
             {
@@ -202,11 +252,26 @@ main(int argc, char* argv[])
 
     Ipv4GlobalRoutingHelper::PopulateRoutingTables();
 
-    Simulator::Stop(Seconds(simulationTime));
+    Simulator::Stop(Seconds(SimulationTime));
 
     Simulator::Run();
 
     Simulator::Destroy();
+
+    if (metricOutputFileStream.tellp() == 0)
+    {
+        metricOutputFileStream << "NumberOfNodes,NumberOfFlows,PacketSize,"
+                               << "NumberOfPacketsPerSecond,SpeedOfNodes,"
+                               << "CoverageArea,TotalTxPackets,TotalRxPackets,"
+                               << "PacketDeliveryRatio,Throughput" << std::endl;
+    }
+
+    metricOutputFileStream << NumberOfNodes << "," << NumberOfFlows << "," << PacketSize << ","
+                           << NumberOfPacketsPerSecond << "," << SpeedOfNodes << "," << CoverageArea
+                           << "," << totalTxPackets << "," << totalRxPackets << ","
+                           << PacketDeliveryRatio(totalTxPackets, totalRxPackets) << ","
+                           << CalculateThroughput(totalRxPackets, PacketSize, SimulationTime)
+                           << std::endl;
 
     return 0;
 }
