@@ -95,6 +95,9 @@ main(int args, char* argv[])
     uint64_t rxAckPackets2 = 0;
     double throughput1 = 0;
     double throughput2 = 0;
+    double jainIndexNum = 0;
+    double jainIndexDen = 0;
+    double jainIndex = 0;
 
     if (verbose)
     {
@@ -234,6 +237,12 @@ main(int args, char* argv[])
     for (auto it = flowStatsContainer.begin(); it != flowStatsContainer.end(); ++it)
     {
         Ipv4FlowClassifier::FiveTuple fiveTuple = flowClassifier->FindFlow(it->first);
+        double currentThroughput = it->second.rxBytes * 8 /
+                                   (receiverSimulationStopTime - receiverSimulationStartTime) /
+                                   1000; // in Kbps
+        jainIndexNum += currentThroughput;
+        jainIndexDen += pow(currentThroughput, 2);
+
         for (uint32_t i = 0; i < dumbbellHelper.LeftCount(); ++i)
         {
             if (dumbbellHelper.GetLeftIpv4Address(i) == fiveTuple.sourceAddress)
@@ -260,6 +269,7 @@ main(int args, char* argv[])
     }
     throughput1 /= (receiverSimulationStopTime - receiverSimulationStartTime) * 1000; // in Kbps
     throughput2 /= (receiverSimulationStopTime - receiverSimulationStartTime) * 1000; // in Kbps
+    jainIndex = pow(jainIndexNum, 2) / (jainIndexDen * flowStatsContainer.size());
     Simulator::Destroy();
 
     if (metricOutputFileStream.tellp() == 0)
@@ -281,7 +291,8 @@ main(int args, char* argv[])
                                << "Rx Ack Packets 1,"
                                << "Rx Ack Packets 2,"
                                << "Throughput 1 (Mbps),"
-                               << "Throughput 2 (Mbps)" << endl;
+                               << "Throughput 2 (Mbps),"
+                               << "Jain Index" << endl;
     }
 
     metricOutputFileStream << senderSimulationStartTime << "," << senderSimulationStopTime << ","
@@ -290,6 +301,7 @@ main(int args, char* argv[])
                            << tcpVariant1 << "," << tcpVariant2 << "," << txPackets1 << ","
                            << txPackets2 << "," << rxPackets1 << "," << rxPackets2 << ","
                            << txAckPackets1 << "," << txAckPackets2 << "," << rxAckPackets1 << ","
-                           << rxAckPackets2 << "," << throughput1 << "," << throughput2 << endl;
+                           << rxAckPackets2 << "," << throughput1 << "," << throughput2 << ","
+                           << jainIndex << endl;
     return 0;
 }
