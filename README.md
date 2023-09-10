@@ -1,4 +1,5 @@
 # CSE-322 | Computer Networks 
+This repository contains my solutions to the assignments of the course CSE-322 provide by BUET CSE Department.
 
 [Here](/assets/course_outline.pdf) is the course outline.
 
